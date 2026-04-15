@@ -2,6 +2,7 @@ from flask import Flask
 from flask_cors import CORS
 from app.core.config import Config
 from app.core.logger import setup_logger
+from app.db.database import init_db
 from app.routes.recommend import recommend_bp
 from app.routes.submit import submit_bp
 from app.routes.analyze import analyze_bp
@@ -12,6 +13,7 @@ def create_app():
     app = Flask(__name__)
     CORS(app)
     app.config.from_object(Config)
+    init_db()
 
     # Setup logger
     logger = setup_logger(Config.LOG_LEVEL)

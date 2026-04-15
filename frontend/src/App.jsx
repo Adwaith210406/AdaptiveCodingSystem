@@ -1,9 +1,7 @@
 import { useState } from "react";
 import "./App.css";
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer
-} from "recharts";
 import { FaUser, FaLock } from "react-icons/fa";
+import AnalyzerPage from "./AnalyzerPage";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -12,13 +10,11 @@ function App() {
   const [result, setResult] = useState(null);
   const [message, setMessage] = useState("");
 
-  const [code, setCode] = useState("");
-  const [feedback, setFeedback] = useState([]);
-
   const [stats, setStats] = useState([]);
   const [leaderboard, setLeaderboard] = useState([]);
 
-  const [view, setView] = useState("none");
+  const [view, setView] = useState("home");
+  const [selectedProblem, setSelectedProblem] = useState(null);
 
   // 🔐 AUTH
   const handleAuth = async (type) => {
@@ -46,88 +42,119 @@ function App() {
     }
   };
 
-  // 🎯 RECOMMEND
+  // 🎯 RECOMMEND (🔥 FIXED)
   const getRecommendation = async () => {
     try {
+      if (!user?.id) {
+        alert("User not logged in properly");
+        return;
+      }
+
       const res = await fetch("http://127.0.0.1:5000/recommend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: user.id })
       });
 
+      if (!res.ok) {
+        throw new Error("Server error while fetching recommendations");
+      }
+
       const data = await res.json();
+
+      console.log("RECOMMEND RESPONSE:", data); // 🔥 DEBUG
+
+      // 🔥 CRITICAL FIX
+      if (!data || !Array.isArray(data.problems) || data.problems.length === 0) {
+        alert("No problems received from backend");
+        return;
+      }
+
       setResult(data);
       setView("problems");
+
     } catch (err) {
-      console.error(err);
+      console.error("Recommendation error:", err);
+      alert("Failed to fetch recommendations");
     }
   };
 
-  // 📊 FETCH STATS + LEADERBOARD
-  const fetchStats = async () => {
+  // 📊 FETCH CHART
+  const fetchChartStats = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:5000/leaderboard");
+      if (!user?.id) return;
+
+      const res = await fetch(`http://127.0.0.1:5000/stats/${user.id}`);
       const data = await res.json();
 
-      console.log("Leaderboard:", data);
-
-      if (!data || data.length === 0) {
-        setLeaderboard([]);
+      if (!Array.isArray(data) || data.length === 0) {
         setStats([]);
         return;
       }
 
-      setLeaderboard(data);
-
       setStats(
-        data.map((u) => ({
-          user: u.username,
-          accuracy: Number((u.accuracy * 100).toFixed(1))
+        data.map((attempt, index) => ({
+          id: `${attempt.problem_name}-${index}`,
+          problemName: attempt.problem_name,
+          accuracy: Number((attempt.accuracy * 100).toFixed(1))
         }))
       );
 
     } catch (err) {
-      console.error("Error fetching stats:", err);
+      console.error("Chart stats error:", err);
     }
   };
 
-  // ✅ SUBMIT
-  const handleSubmit = async (p) => {
+  // 🏆 FETCH LEADERBOARD
+  const fetchLeaderboard = async () => {
     try {
-      await fetch("http://127.0.0.1:5000/submit", {
+      const res = await fetch("http://127.0.0.1:5000/leaderboard");
+      const data = await res.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        setLeaderboard([]);
+        return;
+      }
+
+      setLeaderboard(
+        data.filter((entry) => entry.username !== user?.username)
+      );
+
+    } catch (err) {
+      console.error("Leaderboard error:", err);
+    }
+  };
+
+  // 🔥 AFTER ANALYZER DONE
+  const handleDone = async (accuracy) => {
+    try {
+      if (accuracy === null || accuracy === undefined || !selectedProblem) return;
+
+      const res = await fetch("http://127.0.0.1:5000/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_id: user.id,
-          problem_id: p.contestId + p.index,
-          difficulty: result.difficulty,
-          correct: 1,
-          time_taken: 100
+          problem_id: selectedProblem.id,
+          problem_name: selectedProblem.name,
+          difficulty: result?.difficulty,
+          accuracy: accuracy
         })
       });
 
-      // 🔥 Update UI instantly
+      if (!res.ok) {
+        throw new Error("Submission failed");
+      }
+
+      await Promise.all([fetchChartStats(), fetchLeaderboard()]);
+
+      setView("chart");
+
+      // 🔥 REFRESH RECOMMENDATIONS
       getRecommendation();
-      fetchStats();
 
     } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // 💻 ANALYZE
-  const analyzeCode = async () => {
-    try {
-      const res = await fetch("http://127.0.0.1:5000/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code })
-      });
-
-      const data = await res.json();
-      setFeedback(data.feedback);
-    } catch (err) {
-      console.error(err);
+      console.error("Submit error:", err);
     }
   };
 
@@ -172,6 +199,16 @@ function App() {
     );
   }
 
+  // 🔥 ANALYZER PAGE
+  if (view === "analyzer") {
+    return (
+      <AnalyzerPage
+        problem={selectedProblem}
+        onDone={handleDone}
+      />
+    );
+  }
+
   // 🔥 DASHBOARD
   return (
     <div className="dashboard">
@@ -184,16 +221,15 @@ function App() {
       </button>
 
       <div className="button-row">
-        <button onClick={() => { fetchStats(); setView("chart"); }}>
+        <button onClick={() => { fetchChartStats(); setView("chart"); }}>
           Show Chart
         </button>
 
-        <button onClick={() => { fetchStats(); setView("leaderboard"); }}>
+        <button onClick={() => { fetchLeaderboard(); setView("leaderboard"); }}>
           Show Leaderboard
         </button>
       </div>
 
-      {/* 🔥 DYNAMIC SECTION */}
       <div className="card">
 
         {/* PROBLEMS */}
@@ -203,59 +239,65 @@ function App() {
 
             {result.problems.map((p, i) => (
               <div key={i} className="problem">
-                <a
-                  href={`https://codeforces.com/problemset/problem/${p.contestId}/${p.index}`}
-                  target="_blank"
-                  rel="noreferrer"
+
+                <span
+                  className="link"
+                  onClick={() => {
+                    setSelectedProblem({
+                      id: p.contestId + p.index,
+                      name: p.name
+                    });
+                    setView("analyzer");
+                  }}
                 >
                   {p.name} ({p.rating})
-                </a>
+                </span>
 
-                <button onClick={() => handleSubmit(p)}>
+                <button
+                  onClick={() =>
+                    window.open(
+                      `https://codeforces.com/problemset/problem/${p.contestId}/${p.index}`,
+                      "_blank"
+                    )
+                  }
+                >
                   Solve
                 </button>
+
               </div>
             ))}
           </>
         )}
 
-        {/* 📊 CHART */}
+        {/* CHART */}
         {view === "chart" && (
           <>
             <h3>📊 Performance</h3>
-
             {stats.length === 0 ? (
-              <p>No data yet. Solve problems first.</p>
+              <p>No data yet</p>
             ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={stats}>
-                  <XAxis
-                    dataKey="user"
-                    interval={0}
-                    angle={-20}
-                    textAnchor="end"
-                  />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="accuracy" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              stats.map((s) => (
+                <p key={s.id}>{s.problemName}: {s.accuracy}%</p>
+              ))
             )}
           </>
         )}
 
-        {/* 🏆 LEADERBOARD */}
+        {/* LEADERBOARD */}
         {view === "leaderboard" && (
           <>
             <h3>🏆 Leaderboard</h3>
 
             {leaderboard.length === 0 ? (
-              <p>No leaderboard data yet.</p>
+              <p>No leaderboard data yet</p>
             ) : (
               leaderboard.map((u, i) => (
                 <div key={i} className="leader-item">
                   <div className="rank">#{i + 1}</div>
-                  <div className="name">{u.username}</div>
+                  <div className="name">
+                    <strong>{u.username}</strong>
+                    <div className="problem-name">{u.problem_name}</div>
+                  </div>
                   <div className="score">
                     {(u.accuracy * 100).toFixed(1)}%
                   </div>
@@ -265,25 +307,6 @@ function App() {
           </>
         )}
 
-      </div>
-
-      {/* 💻 ANALYZER */}
-      <div className="card">
-        <h3>💻 Code Analyzer</h3>
-
-        <textarea
-          placeholder="Paste code here..."
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-        />
-
-        <button onClick={analyzeCode}>Analyze</button>
-
-        <div className="feedback">
-          {feedback.map((f, i) => (
-            <p key={i}>{f}</p>
-          ))}
-        </div>
       </div>
 
       <button className="logout" onClick={() => setUser(null)}>

@@ -5,56 +5,54 @@ analyze_bp = Blueprint("analyze", __name__)
 @analyze_bp.route("/analyze", methods=["POST"])
 def analyze_code():
     data = request.get_json()
-    code = data.get("code", "")
+    code = data.get("code", "").strip()
+
+    # 🔥 EMPTY CODE CHECK
+    if not code:
+        return jsonify({
+            "error": "No code given. Please paste your code before analyzing."
+        }), 400
 
     feedback = []
+    issues = 0
 
-    # 🔍 1. LENGTH CHECK
+    # 🔍 RULES
     if len(code) < 50:
-        feedback.append(
-            "⚠️ Your code is very short. Make sure you've fully implemented the solution and not just a partial snippet."
-        )
+        feedback.append("⚠️ Code is too short — may be incomplete.")
+        issues += 1
 
-    # 🔍 2. NESTED LOOPS
     if code.count("for") > 2:
-        feedback.append(
-            "⚠️ Multiple nested loops detected. This may increase time complexity (possibly O(n²) or worse). Try optimizing using better data structures like hash maps or prefix sums."
-        )
+        feedback.append("⚠️ Too many loops → high time complexity.")
+        issues += 1
 
-    # 🔍 3. INPUT OPTIMIZATION (PYTHON)
     if "input()" in code:
-        feedback.append(
-            "⚡ Using input() can be slow for large inputs. Consider using sys.stdin.readline() for faster input handling in competitive programming."
-        )
+        feedback.append("⚡ Use faster input methods (sys.stdin).")
+        issues += 1
 
-    # 🔍 4. DEBUG PRINTS
     if "print(" in code and "return" not in code:
-        feedback.append(
-            "🧪 Debug print statements detected. Ensure unnecessary prints are removed before final submission to avoid wrong answers."
-        )
+        feedback.append("🧪 Remove debug prints.")
+        issues += 1
 
-    # 🔍 5. NO FUNCTIONS
     if "def " not in code:
-        feedback.append(
-            "📦 Your code does not use functions. Structuring your code into functions improves readability and reusability."
-        )
+        feedback.append("📦 Use functions for better structure.")
+        issues += 1
 
-    # 🔍 6. HARD-CODED VALUES
     if "==" in code and any(num in code for num in ["10", "100", "1000"]):
-        feedback.append(
-            "⚠️ Possible hard-coded values detected. Ensure your solution works for all test cases, not just specific ones."
-        )
+        feedback.append("⚠️ Avoid hard-coded values.")
+        issues += 1
 
-    # 🔍 7. EDGE CASES
     if "if" not in code:
-        feedback.append(
-            "⚠️ No conditional checks detected. Make sure you are handling edge cases (like empty inputs or minimum values)."
-        )
+        feedback.append("⚠️ Handle edge cases.")
+        issues += 1
 
-    # 🔍 8. DEFAULT GOOD FEEDBACK
-    if not feedback:
-        feedback.append(
-            "✅ Your code structure looks good! Consider testing edge cases and optimizing further if needed."
-        )
+    # 🔥 ACCURACY
+    total_rules = 7
+    accuracy = max(0, (total_rules - issues) / total_rules)
 
-    return jsonify({"feedback": feedback})
+    if issues == 0:
+        feedback.append("✅ Code looks good!")
+
+    return jsonify({
+        "feedback": feedback,
+        "accuracy": accuracy
+    })
