@@ -3,10 +3,11 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
+
 print("✅ Step 1: Imports started")
 
 # Local imports (after print to debug hanging)
-from app.db.database import load_data
+from app.db.database import load_all_data
 print("✅ Step 2: Database module loaded")
 
 from app.ml.features import create_features
@@ -22,7 +23,7 @@ def train_model():
     # -------------------------------
     # 📥 Load Data
     # -------------------------------
-    df = load_data()
+    df = load_all_data()
     print("✅ Data loaded:", len(df), "rows")
 
     if df.empty:

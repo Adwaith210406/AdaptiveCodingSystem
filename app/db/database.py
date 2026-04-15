@@ -1,86 +1,157 @@
-import os
 import sqlite3
+import os
 import pandas as pd
-from typing import Optional
-from app.core.config import Config
 
 
-# -------------------------------
-# 🔌 Connection Handler
-# -------------------------------
+# 🔹 Database path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "../../data/coding.db")
 
+# 🔹 Ensure data folder exists
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+
+# =========================
+# 🔥 CONNECTION FUNCTION
+# =========================
 def get_connection():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    db_path = os.path.join(base_dir, "data", "coding.db")
-
-    print("DB PATH:", db_path)  # debug
-
-    return sqlite3.connect(db_path)
+    return sqlite3.connect(DB_PATH)
 
 
-# -------------------------------
-# 📥 Load Full Dataset (Training)
-# -------------------------------
+# =========================
+# 🔥 CREATE TABLE (RUN ONCE)
+# =========================
+def init_db():
+    conn = get_connection()
+    cursor = conn.cursor()
 
-def load_data() -> pd.DataFrame:
-    """
-    Load entire dataset from database
-    Used for model training
-    """
+    # 🔹 submissions table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        problem_id TEXT,
+        difficulty TEXT,
+        correct INTEGER,
+        time_taken INTEGER
+    )
+    """)
+
+    # 🔹 users table (for login system)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+# =========================
+# 🔥 INSERT SUBMISSION
+# =========================
+def insert_submission(user_id, problem_id, difficulty, correct, time_taken):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO submissions (user_id, problem_id, difficulty, correct, time_taken)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, problem_id, difficulty, correct, time_taken))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================
+# 🔥 LOAD USER DATA
+# =========================
+def load_user_data(user_id):
     conn = get_connection()
 
-    try:
-        query = "SELECT * FROM submissions"
-        df = pd.read_sql(query, conn)
-
-        if df.empty:
-            raise ValueError("⚠️ Database is empty. Cannot train model.")
-
-        return df
-
-    except Exception as e:
-        raise RuntimeError(f"❌ Failed to load data: {str(e)}")
-
-    finally:
-        conn.close()
-
-
-# -------------------------------
-# 👤 Load User Data (Prediction)
-# -------------------------------
-
-def load_user_data(user_id: int) -> pd.DataFrame:
+    query = """
+        SELECT user_id, problem_id, difficulty, correct, time_taken
+        FROM submissions
+        WHERE user_id = ?
     """
-    Load data for a specific user
-    Used for prediction/recommendation
-    """
+
+    df = pd.read_sql_query(query, conn, params=(user_id,))
+    conn.close()
+
+    return df
+
+
+# =========================
+# 🔥 OPTIONAL: CLEAR DATA
+# =========================
+def clear_user_data(user_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM submissions WHERE user_id = ?
+    """, (user_id,))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================
+# 🔥 DEBUG FUNCTION
+# =========================
+def print_all_data():
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT * FROM submissions", conn)
+    conn.close()
+
+    print(df)
+    
+def load_all_data():
     conn = get_connection()
 
-    try:
-        query = "SELECT * FROM submissions WHERE user_id = ?"
-        df = pd.read_sql(query, conn, params=(user_id,))
-
-        return df
-
-    except Exception as e:
-        raise RuntimeError(f"❌ Failed to load user data: {str(e)}")
-
-    finally:
-        conn.close()
-
-
-# -------------------------------
-# 🧪 Health Check (Optional)
-# -------------------------------
-
-def check_db_connection() -> bool:
+    query = """
+        SELECT user_id, problem_id, difficulty, correct, time_taken
+        FROM submissions
     """
-    Simple DB health check
+
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    return df
+
+def get_leaderboard():
+    conn = get_connection()
+
+    query = """
+    SELECT users.username,
+           COUNT(submissions.id) as attempts,
+           SUM(submissions.correct) * 1.0 / COUNT(submissions.id) as accuracy
+    FROM submissions
+    JOIN users ON users.id = submissions.user_id
+    GROUP BY submissions.user_id
+    HAVING COUNT(submissions.id) > 0
+    ORDER BY accuracy DESC
+    LIMIT 10
     """
-    try:
-        conn = get_connection()
-        conn.execute("SELECT 1")
-        conn.close()
-        return True
-    except Exception:
-        return False
+
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+
+    # 🔥 Convert to proper JSON format
+    leaderboard = []
+
+    for _, row in df.iterrows():
+        leaderboard.append({
+            "username": row["username"],
+            "accuracy": float(row["accuracy"])
+        })
+
+    return leaderboard
+
+# =========================
+# 🔥 RUN INIT WHEN FILE RUN
+# =========================
+if __name__ == "__main__":
+    init_db()
+    print("✅ Database initialized at:", DB_PATH)
